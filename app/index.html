@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>Code in the Dark</title>
   <script src="bundle.js" inline></script>
 </head>
+
 <body>
   <div class="background"></div>
   <canvas class="canvas-overlay"></canvas>
   <pre id="editor"></pre>
   <div class="streak-container">
-      <div class="current">Combo</div>
-      <div class="counter">0</div>
-      <div class="bar"></div>
-      <div class="exclamations"></div>
+    <div class="current">Combo</div>
+    <div class="counter">0</div>
+    <div class="bar"></div>
+    <div class="exclamations"></div>
   </div>
+
   <div class="reference-screenshot-container">
     <span>Reference</span>
     <div class="reference-screenshot" style="background-image:url(assets/page.png);"></div>
@@ -28,6 +31,10 @@
     <h1>POWER MODE!</h1>
   </div>
 
+  <div class="timer-container">
+    <span id="timer">60:00</span>
+  </div>
+
   <div class="instructions-container">
     <iframe class="instructions" src="assets/instructions.html"></iframe>
   </div>
@@ -39,4 +46,5 @@
 
   <iframe class="result" src="assets/result.html" frameborder="0"><iframe>
 </body>
+
 </html>

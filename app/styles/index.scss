@@ -1,3 +1,5 @@
+@use 'sass:color';
+
 @font-face {
   font-family: "Press Start 2P";
   src: url(~assets/fonts/PressStart2P-Regular.ttf)  format("truetype");
@@ -222,6 +224,43 @@ body.power-mode #editor {
   float: right;
 }
 
+.timer-container {
+  position: absolute;
+  z-index: 50;
+  bottom: 270px;
+  right: 20px;
+  background-color: #3A9364;
+  color: white;
+  font-family: "Press Start 2P", sans-serif;
+  font-size: 16px;
+  padding: 12px 18px;
+  text-align: center;
+  border-radius: 4px;
+
+  #timer {
+    display: block;
+    letter-spacing: 2px;
+  }
+
+  &.warning {
+    background-color: #FF6B35;
+    animation: pulse 1s infinite;
+  }
+
+  &.expired {
+    background-color: #D32F2F;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .reference-screenshot-container {
   position: absolute;
   z-index: 50;
@@ -247,7 +286,9 @@ body.power-mode #editor {
     height: 100%;
     bottom: 0;
     left: 0;
+    right: 0;
     padding: 25px;
+    background: rgba(0, 0, 0, 0.95);
 
     .reference-screenshot {
       width: 100%;
@@ -268,7 +309,7 @@ body.power-mode #editor {
   bottom: 20px;
   left: 20px;
   padding: 20px;
-  background: transparentize(#3A9364, 0.25);
+  background: color.scale(#3A9364, $alpha: -25%);
   color: white;
   font-size: 56px;
 
@@ -313,7 +354,7 @@ body.power-mode {
   }
 
   .name-tag {
-    background: transparentize(#00DDFF, 0.25);
+    background: color.scale(#00DDFF, $alpha: -25%);
   }
 
   .streak-container {

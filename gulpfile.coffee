@@ -6,7 +6,9 @@ rename = require "gulp-rename"
 merge = require "merge-stream"
 deepExtend = require "deep-extend"
 runSequence = require "run-sequence"
-autoprefixer = require "autoprefixer-core"
+autoprefixer = require "autoprefixer"
+log = require "fancy-log"
+PluginError = require "plugin-error"
 
 webpack = require "webpack"
 WebpackDevServer = require "webpack-dev-server"
@@ -28,112 +30,134 @@ config =
 
   webpack: ->
     resolveLoader:
-      moduleDirectories: ["node_modules"]
+      modules: ["node_modules"]
 
     output:
       path: path.join __dirname, config.paths.tmp
       filename: "bundle.js"
+      publicPath: "/"
 
     resolve:
-      extensions: ["", ".js", ".coffee", ".scss", ".css", ".ttf"]
+      extensions: [".js", ".coffee", ".scss", ".css", ".ttf"]
       alias:
         "assets": path.join __dirname, config.paths.assets
 
     module:
-      loaders: [
-        { test: /\.scss$/, loaders: ["style", "css", "postcss-loader", "sass"] }
-        { test: /\.coffee$/, loaders: ["coffee"] }
-        { test: /\.png/, loaders: ["url-loader?mimetype=image/png"] }
-        { test: /\.ttf/, loaders: ["url-loader?mimetype=font/ttf"] }
+      rules: [
+        { test: /\.scss$/, use: ["style-loader", "css-loader", "postcss-loader", "sass-loader"] }
+        { test: /\.coffee$/, use: ["coffee-loader"] }
+        { test: /\.png/, type: "asset/inline", generator: { dataUrl: { mimetype: "image/png" } } }
+        { test: /\.ttf/, type: "asset/inline", generator: { dataUrl: { mimetype: "font/ttf" } } }
       ]
-
-    postcss: [autoprefixer({ browsers: ["last 2 version"] })]
 
   webpackEnvs: ->
     development:
+      mode: "development"
       devtool: "eval"
-      debug: true
       entry: [
-        "webpack-dev-server/client?http://0.0.0.0:#{config.serverPort}"
-        "webpack/hot/only-dev-server"
         "./#{config.paths.scripts}/app"
       ]
 
       plugins: [
         new webpack.HotModuleReplacementPlugin
-        new webpack.NoErrorsPlugin()
       ]
 
     distribute:
+      mode: "production"
       entry: [
         "./#{config.paths.scripts}/app"
       ]
 
-      plugins: [
-        new webpack.optimize.DedupePlugin()
-        new webpack.optimize.UglifyJsPlugin(
-          compressor: { warnings: false }
-        )
-      ]
+      optimization:
+        minimize: true
 
 config = _(config).mapObject (val) ->
   if _.isFunction(val) then val() else val
 
-webpackers = _(config.webpackEnvs).mapObject (val) ->
-  webpack deepExtend({}, config.webpack, val)
+# Function to create webpack compiler with merged config
+getWebpackCompiler = (envName) ->
+  val = config.webpackEnvs[envName]
+  # Merge configs manually to avoid deepExtend corrupting plugin objects
+  mergedConfig = Object.assign({}, config.webpack)
+  for key, value of val
+    if key is 'plugins'
+      # For plugins, use the value from env config (contains plugin instances)
+      mergedConfig[key] = value
+    else if key is 'module' or key is 'resolve'
+      # For module and resolve, deep merge but preserve existing values
+      if value
+        mergedConfig[key] = Object.assign({}, mergedConfig[key] or {}, value)
+    else if typeof value is 'object' and not Array.isArray(value)
+      mergedConfig[key] = Object.assign({}, mergedConfig[key] or {}, value)
+    else
+      mergedConfig[key] = value
+  webpack mergedConfig
 
 ####################
 ## TASKS
 ####################
 
-gulp
-  .task "copy-assets", ->
-    assets = gulp
-      .src path.join(config.paths.assets, "**")
-      .pipe gulp.dest("#{config.paths.tmp}/assets")
+gulp.task "copy-assets", (done) ->
+  gulp
+    .src path.join(config.paths.assets, "**"), { encoding: false }
+    .pipe gulp.dest("#{config.paths.tmp}/assets")
+    .on 'end', ->
+      gulp
+        .src path.join(config.paths.app, "index.html")
+        .pipe gulp.dest(config.paths.tmp)
+        .on 'end', done
 
+gulp.task "copy-page-files", ->
+  gulp
+    .src path.join(config.paths.assets, "{instructions.html,page.png,result.html,beach.jpg}")
+    .pipe gulp.dest(path.join config.paths.dist, "assets")
 
-    instructions = gulp
-      .src path.join(config.paths.app, "index.html")
-      .pipe gulp.dest(config.paths.tmp)
+gulp.task "webpack-dev-server", ->
+  log "Creating webpack compiler..."
+  compiler = getWebpackCompiler('development')
+  log "Compiler created, starting dev server..."
+  server = new WebpackDevServer {
+    static:
+      directory: config.paths.tmp
+      publicPath: "/"
+    hot: true
+    port: config.serverPort
+    host: "0.0.0.0"
+    client:
+      logging: "warn"
+  }, compiler
 
-    merge assets, instructions
+  # Return a promise that keeps the task running
+  server.start().then ->
+    log "[webpack-dev-server] Server running on http://localhost:#{config.serverPort}"
+    # Return a promise that never resolves to keep the server running
+    new Promise (resolve) -> # Never call resolve
+  .catch (err) ->
+    log.error "Error starting webpack-dev-server:", err
+    throw err
 
-  .task "copy-page-files", ->
-    gulp
-      .src path.join(config.paths.assets, "{instructions.html,page.png,result.html,beach.jpg}")
-      .pipe gulp.dest(path.join config.paths.dist, "assets")
+gulp.task "build", (done) ->
+  compiler = getWebpackCompiler('distribute')
+  compiler.run (err, stats) ->
+    if err
+      throw new PluginError("webpack:build", err)
+    if stats.hasErrors()
+      throw new PluginError("webpack:build", "Build failed with errors")
+    done()
 
-  .task "webpack-dev-server", (done) ->
-    server = new WebpackDevServer webpackers.development,
-      contentBase: config.paths.tmp
-      hot: true
-      watchDelay: 100
-      noInfo: true
+watchAssets = (done) ->
+  gulp.watch ["app/assets/**"], gulp.series("copy-assets")
+  done()
 
-    server.listen config.serverPort, "0.0.0.0", (err) ->
-      throw new $.util.PluginError("webpack-dev-server", err) if err
-      $.util.log $.util.colors.green(
-        "[webpack-dev-server] Server running on http://localhost:#{config.serverPort}")
+gulp.task "serve", gulp.series("copy-assets", "webpack-dev-server", watchAssets)
 
-      done()
+gulp.task "inline", ->
+  gulp
+    .src "#{config.paths.tmp}/index.html"
+    .pipe $.inlineSource()
+    .pipe rename(basename: "editor")
+    .pipe gulp.dest("#{config.paths.dist}")
 
-  .task "build", (done) ->
-    webpackers.distribute.run (err, stats) ->
-      throw new $.util.PluginError("webpack:build", err) if err
-      done()
+gulp.task "dist", gulp.series("copy-assets", "build", "inline", "copy-page-files")
 
-  .task "serve", ["copy-assets", "webpack-dev-server"], ->
-    gulp.watch ["app/assets/**"], ["copy-assets"]
-
-  .task "inline", ->
-    gulp
-      .src "#{config.paths.tmp}/index.html"
-      .pipe $.inlineSource()
-      .pipe rename(basename: "editor")
-      .pipe gulp.dest("#{config.paths.dist}")
-
-  .task "dist", ->
-    runSequence "copy-assets", "build", "inline", "copy-page-files"
-
-  .task "default", ["serve"]
+gulp.task "default", gulp.series("serve")

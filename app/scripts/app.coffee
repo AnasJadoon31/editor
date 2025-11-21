@@ -42,11 +42,16 @@ class App
   "Whoah!", ":O", "Nice!", "Splendid!", "Wild!", "Grand!", "Impressive!",
   "Stupendous!", "Extreme!", "Awesome!"]
 
+  TIMER_DURATION: 3600
+  TIMER_WARNING_THRESHOLD: 300
+
   currentStreak: 0
   powerMode: false
   particles: []
   particlePointer: 0
   lastDraw: 0
+  timeRemaining: 3600
+  timerInterval: null
 
   constructor: ->
     @$streakCounter = $ ".streak-container .counter"
@@ -59,6 +64,8 @@ class App
     @canvas = @setupCanvas()
     @canvasContext = @canvas.getContext "2d"
     @$finish = $ ".finish-button"
+    @$timer = $ "#timer"
+    @$timerContainer = $ ".timer-container"
 
     @$body = $ "body"
 
@@ -80,6 +87,7 @@ class App
     @$nameTag.on "click", => @getName true
 
     @getName()
+    @startTimer()
 
     window.requestAnimationFrame? @onFrame
 
@@ -246,6 +254,34 @@ class App
     @$reference.toggleClass "active"
     @editor.focus() unless @$reference.hasClass("active")
 
+  startTimer: =>
+    @timerInterval = setInterval @updateTimer, 1000
+
+  updateTimer: =>
+    @timeRemaining--
+
+    if @timeRemaining <= 0
+      @timeRemaining = 0
+      @stopTimer()
+      @$timerContainer.addClass "expired"
+      @finishContest()
+      return
+
+    minutes = Math.floor(@timeRemaining / 60)
+    seconds = @timeRemaining % 60
+    @$timer.text "#{minutes}:#{if seconds < 10 then '0' else ''}#{seconds}"
+
+    if @timeRemaining <= @TIMER_WARNING_THRESHOLD and not @$timerContainer.hasClass("warning")
+      @$timerContainer.addClass "warning"
+
+  stopTimer: =>
+    clearInterval @timerInterval if @timerInterval
+
+  finishContest: =>
+    @stopTimer()
+    @$result[0].contentWindow.postMessage(@editor.getValue(), "*")
+    @$result.show()
+
   onClickFinish: =>
     confirm = prompt "
       This will show the results of your code. Doing this before the round is over
@@ -253,20 +289,19 @@ class App
     "
 
     if confirm?.toLowerCase() is "yes"
-      @$result[0].contentWindow.postMessage(@editor.getValue(), "*")
-      @$result.show()
+      @finishContest()
 
-  onChange: (e) =>
+  onChange: (delta) =>
     @debouncedSaveContent()
-    insertTextAction = e.data.action is "insertText"
+    # The delta object has action ("insert" or "remove"), start, and end properties
+    insertTextAction = delta.action is "insert"
     if insertTextAction
       @increaseStreak()
       @debouncedEndStreak()
 
     @throttledShake()
 
-    range = e.data.range
-    pos = if insertTextAction then range.end else range.start
+    pos = if insertTextAction then delta.end else delta.start
 
     token = @editor.session.getTokenAt pos.row, pos.column
 
